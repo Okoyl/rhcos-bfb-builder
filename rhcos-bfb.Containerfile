@@ -24,7 +24,7 @@ RUN KVER=$(ls /usr/lib/modules | head -n1) && \
 
 ARG D_OFED_SRC_ARCHIVE="MLNX_OFED_SRC-${D_OFED_SRC_TYPE}${D_OFED_VERSION}.tgz"
 
-RUN dnf install -y automake autoconf libtool perl && dnf clean all
+RUN dnf install -y automake autoconf libtool perl wget && dnf clean all
 
 RUN wget --no-check-certificate -O ${D_OFED_SRC_ARCHIVE} ${DOCA_SOURCES_URL}/mlnx_ofed/${D_OFED_SRC_ARCHIVE}; \
   if [ $? -ne 0 ]; then \
@@ -51,10 +51,12 @@ ENV HOME=/build
 WORKDIR /root
 
 RUN SRPMS=("bluefield_edac" "tmfifo" "pwr-mlxbf"  "gpio-mlxbf" "gpio-mlxbf2" "gpio-mlxbf3" "mlx-bootctl" \
-  "dw-mmc-bluefield" "i2c-mlxbf" "mlx-cpld" \
+  "dw-mmc-bluefield" "i2c-mlxbf" \
   "mlxbf-pmc" "mlxbf-ptm" "mlxbf-pka" \
-  "mlxbf-livefish" "mlxbf-gige" "mlx-trio" "ipmb-dev-int" "ipmb-host" "pinctrl-mlxbf3" "sdhci-of-dwcmshc") && \
-  wget -r -np -nd -A rpm -e robots=off "${DOCA_SOURCES_URL}/SoC/" --accept-regex="$(IFS='|'; echo "(${SRPMS[*]/%/.+\.rpm})")"
+  "mlxbf-livefish" "mlx-trio" "ipmb-dev-int" "ipmb-host" "pinctrl-mlxbf3" "sdhci-of-dwcmshc" "mlx-cpld" "mlxbf-gige") && \
+  wget -r -np -nd -A rpm -e robots=off "${DOCA_SOURCES_URL}/SoC/" --accept-regex="$(IFS='|'; echo "(${SRPMS[*]/%/.+\.rpm})")" && \
+  mkdir patching_required && \
+  mv mlx-cpld* mlxbf-gige* patching_required
 
 RUN source /kernelver.env && \
   for package in *.src.rpm; do \
@@ -62,17 +64,32 @@ RUN source /kernelver.env && \
   rm -f $package; \
   done
 
-# RUN SRPMS_PATCH_REQUIRED=("mlxbf-pka") && \
-#   wget -r -np -nd -A rpm -e robots=off "${DOCA_SOURCES_URL}/SoC" --accept-regex="$(IFS='|'; echo "(${SRPMS_PATCH_REQUIRED[*]/%/.+\.rpm})")"
+COPY patches/mlx-cpld.patch /root/patching_required/mlx-cpld.patch
+RUN source /kernelver.env && \
+  cd patching_required && \
+  PACKAGE="mlx-cpld" && \
+  rpm2cpio $PACKAGE-*.src.rpm | cpio -idm && \
+  rm -f $PACKAGE-*.src.rpm && \
+  tar -xf $PACKAGE-*.tar.gz -o && \
+  SRCDIR=$(basename $PACKAGE-*.tar.gz .tar.gz) && \
+  rm -f $PACKAGE-*.tar.gz && \
+  patch $SRCDIR/mlx-cpld.c < /root/patching_required/mlx-cpld.patch && \
+  tar -czf "${SRCDIR}.tar.gz" $SRCDIR && \
+  rpmbuild -ba $SRCDIR/*.spec --define 'KMP 1' --define "KVERSION $KVER" --define "_sourcedir $(pwd)" --define "debug_package %{nil}"
 
-# RUN source /kernelver.env && \
-#   PACKAGE="mlxbf-pka" && \
-#   rpm2cpio $PACKAGE-*.src.rpm | cpio -idm && \
-#   rm -f $PACKAGE-*.src.rpm && \
-#   tar -xvf $PACKAGE-*.tar.gz -o && rm -f $PACKAGE-*.tar.gz && \
-#   SRCDIR=$(basename "$PACKAGE"*) && \
-#   tar -czf "${SRCDIR}.tar.gz" $SRCDIR && \
-#   rpmbuild -ba $SRCDIR/*.spec --define 'KMP 1' --define 'compat_cflags -DRHEL_DRM_VERSION=6 -DRHEL_DRM_PATCHLEVEL=12' --define "KVERSION $KVER" --define "_sourcedir $(pwd)" --define "debug_package %{nil}"
+
+COPY patches/mlxbf-gige.patch /root/patching_required/mlxbf-gige.patch
+RUN source /kernelver.env && \
+  cd patching_required && \
+  PACKAGE="mlxbf-gige" && \
+  rpm2cpio $PACKAGE-*.src.rpm | cpio -idm && \
+  rm -f $PACKAGE-*.src.rpm && \
+  tar -xf $PACKAGE-*.tar.gz -o && \
+  SRCDIR=$(basename $PACKAGE-*.tar.gz .tar.gz) && \
+  rm -f $PACKAGE-*.tar.gz && \
+  patch $SRCDIR/mlxbf_gige_main.c < /root/patching_required/mlxbf-gige.patch && \
+  tar -czf "${SRCDIR}.tar.gz" $SRCDIR && \
+  rpmbuild -ba $SRCDIR/*.spec --define 'KMP 1' --define "KVERSION $KVER" --define "_sourcedir $(pwd)" --define "debug_package %{nil}"
 
 RUN ls /root/MLNX_OFED_SRC-${D_OFED_VERSION}/RPMS/redhat-release-*/aarch64
 
@@ -101,13 +118,12 @@ ARG BMC_FW_PACKAGES="bf3-bmc-fw-signed bf3-cec-fw-signed bf3-bmc-gi-signed bf3-b
 
 RUN mkdir /tmp/rpms
 
-COPY --from=builder /root/rpms/*.rpm /tmp/rpms
-
 ENV D_DOCA_FINALURL=${D_DOCA_BASEURL:-https://linux.mellanox.com/public/repo/doca/${D_DOCA_VERSION}/${D_DOCA_DISTRO}/arm64-dpu/}
+ENV D_DOCA_FINALURL_EL10=${D_DOCA_BASEURL:-https://linux.mellanox.com/public/repo/doca/${D_DOCA_VERSION}/rhel10/sbsa-arm64/}
 
 RUN --mount=type=secret,id=d-doca-baseurl-auth-creds/username-and-password \
-  dnf config-manager --set-enabled codeready-builder-for-rhel-9-$(uname -m)-rpms || \
-  dnf config-manager --set-enabled codeready-builder-beta-for-rhel-9-$(uname -m)-rpms; \
+  dnf config-manager --set-enabled codeready-builder-for-rhel-10-$(uname -m)-rpms || \
+  dnf config-manager --set-enabled codeready-builder-beta-for-rhel-10-$(uname -m)-rpms; \
   dnf clean all; \
   mkdir -p /tmp/rpms; \
   if [ "${D_DOCA_BASEURL_AUTH}" = "true" ]; then \
@@ -124,7 +140,7 @@ RUN --mount=type=secret,id=d-doca-baseurl-auth-creds/username-and-password \
   else \
   REPO_URL="${D_DOCA_FINALURL}"; \
   fi; \
-  cat <<EOF > /etc/yum.repos.d/doca.repo
+cat <<EOF > /etc/yum.repos.d/doca.repo
 [doca]
 name=Nvidia DOCA repository
 baseurl=$REPO_URL
@@ -132,9 +148,17 @@ gpgcheck=0
 enabled=1
 EOF
 
+RUN cat <<EOF > /etc/yum.repos.d/doca-el10.repo
+[doca-el10]
+name=Nvidia DOCA repository for EL 10
+baseurl=$D_DOCA_FINALURL_EL10
+gpgcheck=0
+enabled=1
+EOF
+
 WORKDIR /
 
-RUN \
+RUN --mount=type=bind,from=builder,source=/root/rpms,target=/tmp/rpms \
   # Setup /opt for package installations
   rm opt && mkdir -p usr/opt && ln -s usr/opt opt; \
   ls /tmp/rpms; \
@@ -174,18 +198,20 @@ RUN \
   #
   dnf clean all
 
-RUN dnf -y install --setopt=install_weak_deps=False \
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
+
+RUN dnf -y install --setopt=install_weak_deps=False --disablerepo="doca-el10" \
   doca-runtime \
   collectx-clxapi \
   doca-apsh-config \
   doca-bench \
   doca-caps \
   doca-comm-channel-admin \
-  doca-dms \
-  doca-openvswitch \
-  doca-openvswitch-ipsec \
-  doca-openvswitch-selinux-policy \
-  doca-openvswitch-test \
+  # doca-dms \
+  # doca-openvswitch \
+  # doca-openvswitch-ipsec \
+  # doca-openvswitch-selinux-policy \
+  # doca-openvswitch-test \
   doca-pcc-counters \
   doca-sdk-aes-gcm \
   doca-sdk-apsh \
@@ -207,7 +233,7 @@ RUN dnf -y install --setopt=install_weak_deps=False \
   doca-sdk-telemetry-exporter \
   doca-sdk-urom \
   doca-socket-relay \
-  doca-sosreport \
+  # doca-sosreport \
   dpa-stats \
   dpcp  \
   flexio-sdk \
@@ -255,11 +281,17 @@ RUN dnf -y install --setopt=install_weak_deps=False \
   ipmitool \ 
   nvmetcli\
   ${BMC_FW_PACKAGES} \
-  vim-common \
-  dhcp-client && \
-  dnf clean all
-
-RUN rpm -e --nodeps ngauge || true && \
+  vim-common && \
+  # Install doca-openvswitch packages from EL 10 repository
+  dnf install -y --disablerepo="doca" --enablerepo="doca-el10" \
+  doca-openvswitch \
+  doca-openvswitch-ipsec \
+  doca-openvswitch-selinux-policy \
+  doca-openvswitch-test \
+  doca-sosreport && \
+  dnf clean all && \
+  # Remove unused packages
+  rpm -e --nodeps ngauge || true && \
   rpm -e --nodeps spdk || true && \
   rpm -e --nodeps collectx-clxapi || true && \
   rpm -e --nodeps doca-dms || true && \

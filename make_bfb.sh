@@ -69,9 +69,9 @@ buildbfb() {
 
 main() {
     # default values to keep existing behavior
-    coreos_kernel="${PROJDIR}/rhcos-bfb_${RHCOS_VERSION}-live-kernel.aarch64"
-    coreos_initramfs="${PROJDIR}/rhcos-bfb_${RHCOS_VERSION}-live-initramfs.aarch64.img"
-    coreos_rootfs="${PROJDIR}/rhcos-bfb_${RHCOS_VERSION}-live-rootfs.aarch64.img"
+    coreos_kernel="${PROJDIR}/rhcos-bfb_${RHCOS_VERSION}-rhel10-live-kernel.aarch64"
+    coreos_initramfs="${PROJDIR}/rhcos-bfb_${RHCOS_VERSION}-rhel10-live-initramfs.aarch64.img"
+    coreos_rootfs="${PROJDIR}/rhcos-bfb_${RHCOS_VERSION}-rhel10-live-rootfs.aarch64.img"
     coreos_bfb_container="rhcos-bfb:${RHCOS_VERSION}-latest"
     output_bfb_filepath="${PROJDIR}/output/${IMG_NAME}_${DATETIME}.bfb"
 

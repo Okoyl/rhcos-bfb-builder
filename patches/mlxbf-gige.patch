@@ -1,0 +1,4 @@
+935c935
+< 		phydev = fixed_phy_register(PHY_POLL, &fphy_status, NULL);
+---
+> 		phydev = fixed_phy_register(&fphy_status, NULL);

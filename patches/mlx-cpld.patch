@@ -1,0 +1,13 @@
+135,136c135
+< mlx_cpld_probe(struct i2c_client *client,
+< 		const struct i2c_device_id *id)
+---
+> mlx_cpld_probe(struct i2c_client *client)
+159c158
+< static int
+---
+> static void
+165c164
+< 	return 0;
+---
+> 	return;
